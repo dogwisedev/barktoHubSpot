@@ -84,7 +84,6 @@ module.exports = async (req, res) => {
               ...dealProps,
               city,
               state,
-              phone: buyerInfo.tel || "",
             });
             await addNoteToDeal(deal.id, buildResubmissionNote(bark));
             await updateDealStage(deal.id, NEW_LEADS_STAGE_ID);
