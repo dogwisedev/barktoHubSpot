@@ -4,13 +4,6 @@ Replaces the Zapier link between Bark and HubSpot, and the Bark-native
 HubSpot OAuth integration (which requests full read/write/delete on
 contacts, companies, and deals — broader than needed).
 
-## ⚠️ Rotate your HubSpot token
-
-The old Zap's webhook step had a HubSpot Private App token in plain text.
-That token was live in production and has been exposed — rotate it in
-HubSpot (Settings → Private Apps → regenerate) before going further,
-separately from generating the new scoped token below.
-
 ## How it works
 
 1. Vercel Cron hits `/api/sync-barks` every 15 minutes.
