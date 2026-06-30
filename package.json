@@ -1,0 +1,8 @@
+{
+  "name": "bark-buster-vercel",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  }
+}
