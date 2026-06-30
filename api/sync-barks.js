@@ -2,12 +2,12 @@
 // Triggered on a schedule by Vercel Cron (see vercel.json).
 //
 // Flow: list new Barks -> purchase -> check HubSpot for an existing contact (by email)
-//   - EXISTING contact with a deal -> do NOT create a new deal. Update the
-//     existing deal's fields (Q&A mapping, location, phone, etc.), add a note
-//     explaining the resubmission, and move the deal to "New Leads".
-//   - NEW contact (or existing contact with no deal yet) -> create deal,
-//     mapped from the Q&A block. Existing HubSpot workflow takes over
-//     distribution from there.
+//   - EXISTING contact with a deal -> do NOT create a new deal. Fill in only
+//     the EMPTY fields on the existing deal (never overwrite existing data),
+//     add a note with the full new info regardless, and move the deal to
+//     "New Leads".
+//   - EXISTING contact, no deal yet / NEW contact -> create a deal, add the
+//     same note, and set lead_source to "Bark" only if it was empty.
 
 const { listBarks, purchaseBark } = require("../lib/bark");
 const {
@@ -18,9 +18,12 @@ const {
   associateContactToDeal,
   updateDealStage,
   updateDealProperties,
+  updateContactProperties,
+  getDeal,
   addNoteToDeal,
 } = require("../lib/hubspot");
-const { parseBarkQA, mapQAToDealProperties } = require("../lib/parseBarkQA");
+const { parseBarkQA, mapQAToDealProperties, buildResubmissionNote } = require("../lib/parseBarkQA");
+const { mergeOnlyEmpty, isEmpty } = require("../lib/mergeOnlyEmpty");
 
 // TODO: confirm this is the correct "New Leads" stage ID for your pipeline.
 const NEW_LEADS_STAGE_ID = "173324388";
@@ -29,22 +32,6 @@ const DEAL_PIPELINE_ID = "94161220"; // carried over from the old Zap — confir
 function splitLocation(locationName) {
   const [city, state] = (locationName || "").split(",").map((s) => (s || "").trim());
   return { city: city || "", state: state || "" };
-}
-
-function buildResubmissionNote(bark) {
-  const category = bark.metadata?.category?.name || "Unknown service";
-  const location = bark.metadata?.location?.name || "Unknown location";
-  return [
-    "🐾 BARK BUSTER — RESUBMISSION DETECTED",
-    "─────────────────────────────────────",
-    "Existing contact purchased a new Bark — deal updated, not duplicated.",
-    "",
-    `Service: ${category}`,
-    `Location: ${location}`,
-    `Bark ID: ${bark.id}`,
-    "",
-    "↳ Deal moved to New Leads automatically.",
-  ].join("\n");
 }
 
 module.exports = async (req, res) => {
@@ -70,27 +57,45 @@ module.exports = async (req, res) => {
         const dealProps = mapQAToDealProperties(qa);
         const { city, state } = splitLocation(bark.metadata?.location?.name);
 
+        const noteBody = buildResubmissionNote({
+          category: bark.metadata?.category?.name,
+          location: bark.metadata?.location?.name,
+          barkId: bark.id,
+          qa,
+        });
+
         const existingContact = await findContactByEmail(buyerInfo.email);
 
         if (existingContact) {
           const deals = await findDealsForContact(existingContact.id);
 
           if (deals.length > 0) {
-            // Existing contact with at least one deal — update in place, do not
-            // create a new deal. Pick the most relevant existing deal.
-            const deal = deals[0]; // TODO: confirm tie-break rule if multiple
+            const deal = deals[0]; // most recently touched (sorted in findDealsForContact)
 
-            await updateDealProperties(deal.id, {
-              ...dealProps,
-              city,
-              state,
-            });
-            await addNoteToDeal(deal.id, buildResubmissionNote(bark));
+            // Re-fetch the deal's current values for every field we might write,
+            // so we only fill in blanks and never clobber existing data.
+            const candidateProps = { ...dealProps, city, state };
+            const currentDeal = await getDeal(deal.id, Object.keys(candidateProps));
+            const toWrite = mergeOnlyEmpty(currentDeal.properties, candidateProps);
+
+            if (Object.keys(toWrite).length > 0) {
+              await updateDealProperties(deal.id, toWrite);
+            }
+            await addNoteToDeal(deal.id, noteBody);
             await updateDealStage(deal.id, NEW_LEADS_STAGE_ID);
 
-            results.push({ barkId: bark.id, action: "existing-deal-updated", dealId: deal.id });
+            // lead_source on the contact — only set if currently empty.
+            if (isEmpty(existingContact.properties?.lead_source)) {
+              await updateContactProperties(existingContact.id, { lead_source: "Bark" });
+            }
+
+            results.push({
+              barkId: bark.id,
+              action: "existing-deal-updated",
+              dealId: deal.id,
+              fieldsFilled: Object.keys(toWrite),
+            });
           } else {
-            // Contact exists but has no deal yet — treat as a fresh lead on that contact.
             const [firstName] = (buyerInfo.name || "").split(" ");
             const newDeal = await createDeal({
               pipeline: DEAL_PIPELINE_ID,
@@ -101,11 +106,15 @@ module.exports = async (req, res) => {
               ...dealProps,
             });
             await associateContactToDeal(existingContact.id, newDeal.id);
+            await addNoteToDeal(newDeal.id, noteBody);
+
+            if (isEmpty(existingContact.properties?.lead_source)) {
+              await updateContactProperties(existingContact.id, { lead_source: "Bark" });
+            }
 
             results.push({ barkId: bark.id, action: "deal-created-for-existing-contact", dealId: newDeal.id });
           }
         } else {
-          // Brand new contact — create contact + deal.
           const [firstName, ...rest] = (buyerInfo.name || "").split(" ");
           const newContact = await createContact({
             email: buyerInfo.email,
@@ -113,6 +122,7 @@ module.exports = async (req, res) => {
             lastname: rest.join(" ") || "",
             phone: buyerInfo.tel || "",
             mobilephone: buyerInfo.tel || "",
+            lead_source: "Bark", // brand new contact — always empty, safe to set directly
           });
 
           const newDeal = await createDeal({
@@ -124,6 +134,7 @@ module.exports = async (req, res) => {
             ...dealProps,
           });
           await associateContactToDeal(newContact.id, newDeal.id);
+          await addNoteToDeal(newDeal.id, noteBody);
 
           results.push({
             barkId: bark.id,
