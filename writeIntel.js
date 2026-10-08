@@ -8,12 +8,14 @@ const store = require("../store");
 const { updateDealProperties } = require("../hubspot");
 const { medianIncome } = require("../census");
 const { normalize, scoreNormalized, toProps } = require("./barkLead");
+const { ensureTrainers } = require("./liveTrainers");
 
 async function writeIntel(dealId, bark, { isResubmission = false } = {}) {
   try {
     let properties = store.configured() ? await store.getJSON(`bb:intel:${bark.id}`).catch(() => null) : null;
 
     if (!properties) {
+      await ensureTrainers();
       const L = normalize(bark);
       // purchased_count in a purchase payload likely includes our own purchase — record pros *before* us.
       if (L.responses != null) L.responses = Math.max(0, L.responses - 1);

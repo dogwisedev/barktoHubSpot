@@ -10,6 +10,8 @@ It adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_*`). B
 | `CRON_SECRET` | Any long random string. Vercel sends it on every cron call automatically. |
 | `BB_KEY` | A different long random string. Paste it into the Bark Buster popup (Setup tab). Only give it to people allowed to spend credits. |
 | `CENSUS_KEY` | `0110bfef…` (optional, ZIP income in the score) |
+| `TRAINERS_API_URL` | DogwiseTrainers address, e.g. `https://dogwise-trainers.vercel.app`. Trainers and availability come from here. |
+| `AVAILABILITY_KEY` | Same value as `AVAILABILITY_KEY` in the DogwiseTrainers project. |
 
 Existing `HUBSPOT_TOKEN`, `BARK_CLIENT_ID`, `BARK_CLIENT_SECRET` stay as they are.
 
@@ -26,6 +28,9 @@ Create the "Lead intel" deal properties before going live. Missing ones never br
 | `/api/settings` | `x-bb-key` | GET / POST settings (changes logged with who) |
 | `/api/status` | `x-bb-key` | Switches, today's spend, ranked queue, log, possible duplicates |
 | `/api/peek-barks` | `?secret=CRON_SECRET` | Read-only raw view of open leads |
+
+## Trainers
+Read live from DogwiseTrainers every round (cached 5 minutes). If the app can't be reached, the last good list (up to 24h old) is used, then the built-in Oct 8 snapshot. The popup's "Last round" line says which.
 
 ## Safety
 - Off by default; Dry run logs "would buy / would bust" and counts spend separately.

@@ -4,11 +4,12 @@
  * range marked "// default" was not on file — confirm with ops.
  */
 (function (root) {
-  // Snapshot of ACTIVE trainers from the "Bookings + Availability" sheet (Trainer Availability tab), 2026-10-08.
+  // FALLBACK ONLY: snapshot of active trainers from 2026-10-08, used if DogwiseTrainers can't be reached.
+  // The live list comes from the app via setTrainers() below.
   // Active = visible block above "FORMER". range = miles (hours converted at 50 mph where the sheet gives hours).
   // soon2 / soon3 = first week (Sunday) with a slot free for 2 / 3 weeks in a row. freeNext4/8 = free slot-weeks.
   const SNAPSHOT = "2026-10-08";
-  const TRAINERS = [
+  let TRAINERS = [
     { name: "Alex Santiago", zip: "11729", city: "Deer Park", state: "NY", lat: 40.7591, lon: -73.3257, range: 125, slots: 5, freeNext4: 19, freeNext8: 39, soon2: "2026-10-04", soon3: "2026-10-04" },
     { name: "Matthew Gensinger", zip: "11784", city: "Selden", state: "NY", lat: 40.8699, lon: -73.0448, range: 65, slots: 6, freeNext4: 24, freeNext8: 48, soon2: "2026-10-04", soon3: "2026-10-04" },
     { name: "Amanda Kranz", zip: "12590", city: "Wappingers Falls", state: "NY", lat: 41.5950, lon: -73.8876, range: 100, slots: 2, freeNext4: 6, freeNext8: 12, soon2: "2026-10-11", soon3: "2026-10-11" },
@@ -100,5 +101,23 @@
     return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(`${t.city}, ${t.state} ${t.zip}`)}&travelmode=driving`;
   }
 
-  root.BB_GEO = { SNAPSHOT, TRAINERS, STATE_TZ, haversine, nearestTrainers, localTime, mapsLink };
+  // ── Live list from DogwiseTrainers (/api/availability). The list above is only the fallback. ──
+  let SOURCE = { kind: "snapshot", at: SNAPSHOT };
+  /** Replace the trainer list with the app's live one. source: { kind: "live" | "cached", at: ISO time } */
+  function setTrainers(list, source) {
+    const clean = (list || []).filter(t => t && t.lat != null && t.lon != null && t.range).map(t => ({
+      name: t.name, zip: t.zip || "", city: t.city || "", state: t.state || "", lat: +t.lat, lon: +t.lon,
+      range: +t.range, slots: t.capacity ?? t.slots, freeNext4: t.freeNext4, freeNext8: t.freeNext8, soon2: t.soon2 || null, soon3: t.soon3 || null
+    }));
+    if (!clean.length) return false;
+    TRAINERS = clean;
+    SOURCE = source || { kind: "live", at: new Date().toISOString() };
+    return true;
+  }
+
+  root.BB_GEO = {
+    SNAPSHOT, STATE_TZ, haversine, nearestTrainers, localTime, mapsLink, setTrainers,
+    get TRAINERS() { return TRAINERS; },
+    get SOURCE() { return SOURCE; }
+  };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

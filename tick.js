@@ -13,6 +13,7 @@ const { decide, rank, clock } = require("./autoRules");
 const { checkDuplicateCached } = require("./dupCheck");
 const { medianIncome } = require("./census");
 const { normalize, scoreNormalized, toProps } = require("./intel/barkLead");
+const { ensureTrainers } = require("./intel/liveTrainers");
 
 const DAY_TTL = 3 * 86400, FINAL_TTL = 30 * 86400;
 const sig = (reason) => String(reason || "").replace(/\d+/g, "#"); // log a lead again only when its reason *type* changes
@@ -57,6 +58,8 @@ async function tick({ trigger = "cron" } = {}) {
   const out = { at: new Date().toISOString(), trigger, seen: 0, bought: 0, wouldBuy: 0, busted: 0, wouldBust: 0, errors: [] };
 
   try {
+    const trainerSource = await ensureTrainers();
+    out.trainers = trainerSource.kind; // live | cached | snapshot (shown in the popup)
     const leads = (await listBarks()).map(normalize).filter(L => L.id);
     out.seen = leads.length;
     const ids = leads.map(L => L.id);
