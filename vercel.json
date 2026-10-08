@@ -1,1 +1,4 @@
-{}
+{
+  "crons": [{ "path": "/api/auto-buy", "schedule": "* * * * *" }],
+  "functions": { "api/auto-buy.js": { "maxDuration": 60 } }
+}

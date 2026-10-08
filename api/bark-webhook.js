@@ -11,6 +11,7 @@
 // exactly what Bark actually sent and adjust.
 
 const { processPurchasedBark } = require("../lib/processPurchasedBark");
+const store = require("../lib/store");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -37,8 +38,15 @@ module.exports = async (req, res) => {
     tel: buyer.telephone_formatted || buyer.telephone || "",
   };
 
+  // Idempotency: Bark may retry a webhook. Processing twice would look like a resubmission.
+  const doneKey = `bb:processed:${bark.id}`;
+  if (store.configured() && await store.cmd("EXISTS", doneKey).catch(() => 0)) {
+    return res.status(200).json({ success: true, barkId: bark.id, skipped: "Already processed" });
+  }
+
   try {
     const result = await processPurchasedBark(bark, buyerInfo);
+    if (store.configured()) await store.setJSON(doneKey, { at: new Date().toISOString() }, 30 * 86400).catch(() => {});
     return res.status(200).json({ success: true, barkId: bark.id, ...result });
   } catch (err) {
     return res.status(500).json({ success: false, barkId: bark.id, error: err.message });
